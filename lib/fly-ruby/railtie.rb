@@ -1,6 +1,27 @@
 # frozen_string_literal: true
 
 class Fly::Railtie < Rails::Railtie
+  module DatabaseConfigurationsMonkeyPatch
+    def configurations=(values)
+      configs = ActiveRecord::DatabaseConfigurations.new(values).configurations
+
+      configs = configs.map do |config|
+        if config.adapter == "postgres" && config.respond_to?(:configuration_hash)
+          configuration_hash = config.configuration_hash.merge(Fly.configuration.regional_database_config)
+          ActiveRecord::DatabaseConfigurations::HashConfig.new(config.env_name, config.name, configuration_hash)
+        else
+          config
+        end
+      end
+
+      super ActiveRecord::DatabaseConfigurations.new(configs)
+    end
+  end
+
+  ActiveSupport.on_load(:active_record) do
+    singleton_class.prepend DatabaseConfigurationsMonkeyPatch
+  end
+
   def hijack_database_connection
     ActiveSupport::Reloader.to_prepare do
       # If we already have a database connection when this initializer runs,
